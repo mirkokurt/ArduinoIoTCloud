@@ -61,6 +61,9 @@ static unsigned long getTime()
 
 ArduinoIoTCloudTCP::ArduinoIoTCloudTCP():
   _lastSyncRequestTickTime{0},
+  _brokerAddress{DEFAULT_BROKER_ADDRESS_SECURE_AUTH},
+  _brokerIp{INADDR_NONE},
+  _brokerPort{DEFAULT_BROKER_PORT_SECURE_AUTH},
   _mqtt_data_buf{0},
   _mqtt_data_len{0},
   _mqtt_data_request_retransmit{false},
@@ -92,18 +95,22 @@ ArduinoIoTCloudTCP::~ArduinoIoTCloudTCP()
 
 int ArduinoIoTCloudTCP::begin(ConnectionHandler & connection, String brokerAddress, uint16_t brokerPort)
 {
-  _connection = &connection;
   _brokerAddress = brokerAddress;
-  _brokerPort = brokerPort;
-  time_service.begin(&connection);
-  return begin(_brokerAddress, _brokerPort);
+  return begin(connection, brokerPort);
 }
 
-int ArduinoIoTCloudTCP::begin(String brokerAddress, uint16_t brokerPort)
+int ArduinoIoTCloudTCP::begin(ConnectionHandler & connection, IPAddress const brokerIp, uint16_t const brokerPort)
 {
+  _brokerIp = brokerIp;
+  return begin(connection, brokerPort);
+}
 
-  _brokerAddress = brokerAddress;
+int ArduinoIoTCloudTCP::begin(ConnectionHandler & connection, uint16_t brokerPort)
+{
+  _connection = &connection;
   _brokerPort = brokerPort;
+
+  time_service.begin(_connection);
 
   #ifdef BOARD_HAS_ECCX08
   if (!ECCX08.begin())                                                                                                                                                         { Debug.print(DBG_ERROR, "Cryptography processor failure. Make sure you have a compatible board."); return 0; }
@@ -190,7 +197,11 @@ void ArduinoIoTCloudTCP::printDebugInfo()
   Debug.print(DBG_INFO, "***** Arduino IoT Cloud - configuration info *****");
   Debug.print(DBG_INFO, "Device ID: %s", getDeviceId().c_str());
   Debug.print(DBG_INFO, "Thing ID: %s", getThingId().c_str());
-  Debug.print(DBG_INFO, "MQTT Broker: %s:%d", _brokerAddress.c_str(), _brokerPort);
+  if (_brokerIp == INADDR_NONE) {
+    Debug.print(DBG_INFO, "MQTT Broker: %s:%d", _brokerAddress.c_str(), _brokerPort);
+  } else {
+    Debug.print(DBG_INFO, "MQTT Broker: %d.%d.%d.%d:%d", _brokerIp[0], _brokerIp[1], _brokerIp[2], _brokerIp[3], _brokerPort);
+  }
 }
 
 int ArduinoIoTCloudTCP::reconnect()
@@ -207,6 +218,12 @@ int ArduinoIoTCloudTCP::reconnect()
 
 int ArduinoIoTCloudTCP::connect()
 {
+  if (_brokerIp == INADDR_NONE) {
+    if (!_mqttClient->connect(_brokerAddress.c_str(), _brokerPort)) return CONNECT_FAILURE;
+  } else {
+    if (!_mqttClient->connect(_brokerIp, _brokerPort))              return CONNECT_FAILURE;
+  }  
+
   if (!_mqttClient->connect(_brokerAddress.c_str(), _brokerPort)) return CONNECT_FAILURE;
   if (_mqttClient->subscribe(_stdinTopic) == 0)                   return CONNECT_FAILURE_SUBSCRIBE;
   if (_mqttClient->subscribe(_dataTopicIn) == 0)                  return CONNECT_FAILURE_SUBSCRIBE;
